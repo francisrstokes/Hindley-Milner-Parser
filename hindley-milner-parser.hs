@@ -4,22 +4,28 @@
 import Text.Parsec
 import Text.Parsec.Char
 
-data TExpr t  = TIdentifier String
-              | TExpressionName String
-              | TExpressions [TExpr t]
-              | TTuple [TExpr t]
-              | TNestedType [TExpr t]
-              | TBracketed (TExpr t)
-              | TArrayOf (TExpr t)
-              deriving (Show, Eq)
+type TExpressionName = String
 
-type HindleyMilnerSignature t = (TExpr t, TExpr t)
+data TTypeClassClause = TClassConstraint (String, String)
+                      | TClassConstraints [TTypeClassClause]
+                      deriving (Show, Eq)
+
+data TExpr = TIdentifier String
+           | TExpressions [TExpr]
+           | TTuple [TExpr]
+           | TNestedType [TExpr]
+           | TBracketed (TExpr)
+           | TArrayOf (TExpr)
+           deriving (Show, Eq)
+
+type HindleyMilnerSignature = (TExpressionName, TTypeClassClause, TExpr)
 
 -- Helper function to "extract" array types with only one element
 extractable t a = if (length a > 1) then t a else head a
 
-camelString = (many1 $ lower) <> (many $ alphaNum)
-letterStartingString = (many1 $ letter) <> (many $ alphaNum)
+lowerStartingString = (many1 lower) <> (many alphaNum)
+upperStartingString = (many1 upper) <> (many alphaNum)
+letterStartingString = (many1 letter) <> (many alphaNum)
 bracketed = between (char '(') (char ')')
 
 -- The basic unit of a HM expression is either an identifier or a bracketed expression
@@ -32,6 +38,22 @@ hmExpressions = do
   exprs <- (hmUnit `sepBy` hmArrow)
   return $ (extractable TExpressions exprs)
 
+-- Single type class constraint
+hmTypeClassConstraint = do
+  typeClass <- upperStartingString
+  spaces
+  variable <- lowerStartingString
+  return $ TClassConstraint (typeClass, variable)
+
+-- Multiple type class constraints
+hmTypeClassConstraints = TClassConstraints <$> bracketed (hmTypeClassConstraint `sepBy` hmComma)
+
+-- The entire type class constraint clause
+hmConstraints = do
+  constraints <- hmTypeClassConstraint <|> hmTypeClassConstraints
+  hmConstraintArrow
+  return constraints
+
 -- The hasType operator ::
 hmHasType = spaces *> (string "::") *> spaces
 
@@ -40,6 +62,8 @@ hmArrow = spaces *> (string "->") *> spaces
 
 -- The comma operator for tuples
 hmComma = spaces *> (char ',') *> spaces
+
+hmConstraintArrow = spaces *> string "=>" *> spaces
 
 -- variable or type identifiers
 identifier = TIdentifier <$> letterStartingString
@@ -54,18 +78,19 @@ hmBracketedExpr = (TBracketed <$> bracketed hmExpressions) <|> hmTuple
 hmArrayOf = TArrayOf <$> (char '[' *> hmExpressions <* char ']')
 
 -- Expression name
-expressionName = TExpressionName <$> camelString
+expressionName = lowerStartingString
 
 -- Parser for the whole signature
 hmParser = do
   exprName <- expressionName
   hmHasType
+  constraints <- option (TClassConstraints []) (try hmConstraints)
   hmBody <- hmExpressions
-  return (exprName, hmBody)
+  return (exprName, constraints, hmBody)
 
-parseHindleyMilner :: String -> Either ParseError (HindleyMilnerSignature t)
+
+parseHindleyMilner :: String -> Either ParseError HindleyMilnerSignature
 parseHindleyMilner s = parse hmParser [] s
 
 main =
-  pure $ parseHindleyMilner "map :: a -> [a]"
-  -- pure $ parseHindleyMilner "map :: (a -> b) -> f a -> f b"
+  pure $ parseHindleyMilner "traverse :: (Applicative f, Traversable t) => TypeRep f -> (a -> f b) -> t a -> f (t b)"
