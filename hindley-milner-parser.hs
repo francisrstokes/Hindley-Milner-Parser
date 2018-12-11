@@ -1,3 +1,8 @@
+module HindleyMilnerSignatureParser (
+  TExpr(TIdentifier,TExpressions,TTuple,TNestedType,TBracketed,TArrayOf),
+  parseHindleyMilner
+) where
+
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE FlexibleContexts #-}
 
@@ -21,6 +26,7 @@ data TExpr = TIdentifier String
 type HindleyMilnerSignature = (TExpressionName, TTypeClassClause, TExpr)
 
 -- Helper function to "extract" array types with only one element
+extractable :: ([a] -> a) -> [a] -> a
 extractable t a = if (length a > 1) then t a else head a
 
 lowerStartingString = (many1 lower) <> (many alphaNum)
@@ -60,10 +66,11 @@ hmHasType = spaces *> (string "::") *> spaces
 -- The arrow operator
 hmArrow = spaces *> (string "->") *> spaces
 
+-- The fat arrow, separating the hasType operator and type expression
+hmConstraintArrow = spaces *> string "=>" *> spaces
+
 -- The comma operator for tuples
 hmComma = spaces *> (char ',') *> spaces
-
-hmConstraintArrow = spaces *> string "=>" *> spaces
 
 -- variable or type identifiers
 identifier = TIdentifier <$> letterStartingString
@@ -92,5 +99,6 @@ hmParser = do
 parseHindleyMilner :: String -> Either ParseError HindleyMilnerSignature
 parseHindleyMilner s = parse hmParser [] s
 
+main :: IO (Either ParseError HindleyMilnerSignature)
 main =
-  pure $ parseHindleyMilner "traverse :: (Applicative f, Traversable t) => TypeRep f -> (a -> f b) -> t a -> f (t b)"
+  pure $ parseHindleyMilner "traverse :: (Applicative f, Traversable t) => (a -> f b) -> t a -> f (t b)"
